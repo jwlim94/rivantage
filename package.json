@@ -1,0 +1,33 @@
+{
+  "name": "rivantage",
+  "version": "0.0.1",
+  "description": "Competitor discovery from raw startup ideas",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx --env-file-if-exists=.env src/run.ts",
+    "typecheck": "tsc --noEmit",
+    "probe:grok": "tsx --env-file-if-exists=.env src/probe-grok.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jwlim94/rivantage.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jwlim94/rivantage/issues"
+  },
+  "homepage": "https://github.com/jwlim94/rivantage#readme",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
+    "openai": "^7.5.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}
