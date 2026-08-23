@@ -4,7 +4,7 @@
 
 **목적은 제품을 만드는 게 아니라 "경쟁사 식별이 쓸 만한 정확도로, 감당 가능한 원가에 되는가"를 확인하는 것이다.**
 
-현재 상태: 4개 도메인에서 검증 완료. 리포트 1건당 약 **$0.91**, 약 **5~7분**.
+현재 상태: 4개 도메인에서 검증 완료. 리포트 1건당 약 **$0.91**(리뷰 분석 포함 시 **$1.06**), 약 **5~7분**.
 
 ## 파이프라인
 
@@ -14,6 +14,7 @@
 | 2 | [steps/search.ts](src/steps/search.ts) | 각도별 웹서치 → 리서치 노트 + 소스 URL (프로바이더에 위임) | Haiku 4.5 |
 | 3 | [steps/extract.ts](src/steps/extract.ts) | 노트 → 구조화된 후보 레코드 | Haiku 4.5 |
 | 4 | [steps/consolidate.ts](src/steps/consolidate.ts) | 병합·제외·티어 분류·커버리지 공백 | Opus 5 |
+| 5 | [steps/reviews.ts](src/steps/reviews.ts) | 경쟁사별 강약점 + 인용 + 출처 URL (`--reviews`) | Haiku 4.5 |
 
 ### 설계 결정 다섯 가지
 
@@ -31,7 +32,12 @@ refine이 각도당 검색어 8개를 만들고 캐시하므로 재현 가능하
 LLM에게 다시 쓰게 하면 출력의 73%가 단순 복사에 쓰이고, 그 과정에서 이름이 미묘하게 바뀐다.
 결정만 받게 바꿔서 이 단계 비용이 55% 줄었고 환각 경로가 사라졌다.
 
-**5. 걸러내지 않고 티어로 나눈다** — 리뷰나 매출 흔적이 없는 초기 제품도 창업자가 알아야 할 정보다.
+**5. 리뷰 분석은 인용과 출처를 강제한다** — 각 강점·약점에 실제 표현(`quote`)과 그 말이 나온 URL을
+함께 담게 했다. 점수를 매기는 대신 근거를 보여주고 판단을 창업자에게 남기는 이 제품의 방향과 맞고,
+동시에 환각을 막는다. 사용자 목소리를 못 찾으면 `sentiment: insufficient`로 정직하게 비운다 —
+초기 제품은 리뷰가 없는 게 정상이고, 그 사실도 정보다.
+
+**6. 걸러내지 않고 티어로 나눈다** — 리뷰나 매출 흔적이 없는 초기 제품도 창업자가 알아야 할 정보다.
 `traction`(confirmed / weak / none)으로 분류만 하고 제외하지 않는다. 제외는 "경쟁 상대가 아님"에만 쓴다.
 
 ## 코드 구조
@@ -50,7 +56,7 @@ src/
     anthropic.ts          Anthropic 클라이언트 + 서버사이드 웹서치
     serper.ts             Serper 검색 + Claude 판단 (기본값)
     grok.ts               xAI Grok 서버사이드 웹서치
-  steps/                  4단계. 프로바이더를 직접 알지 못한다
+  steps/                  5단계. 프로바이더를 직접 알지 못한다
   run.ts                  CLI와 오케스트레이션
 ```
 
@@ -85,6 +91,8 @@ npm run dev -- --all --search-provider=serper
 --refresh=extract,...   특정 단계만 캐시 무효화
 --no-cache              전부 다시 실행
 --extract-model=X       단계별 모델 오버라이드
+--reviews               5단계까지 실행 (약 $0.15 추가)
+--review-top=12         리뷰를 분석할 경쟁사 수 상한
 ```
 
 결과는 `out/<id>.<provider>.json`에 저장된다. 각 각도의 원문 검색 노트와 열어본 소스 URL이
@@ -108,7 +116,22 @@ npm run dev -- --all --search-provider=serper
 모두 `direct`로 검출했다. IdeaValidation.ai는 놓쳤다.
 
 리뷰 소스도 도메인마다 다르게 나온다 — SaaS는 reddit·hacker_news, HVAC은 youtube·facebook·app_store,
-도예는 pinterest, 임상은 capterra·g2. 이 값이 그대로 3단계(리뷰 기반 강약점)의 입력이 된다.
+도예는 pinterest, 임상은 capterra·g2. 이 값이 그대로 5단계 검색어를 조준하는 데 쓰인다.
+
+### 리뷰 분석 (임상시험 케이스, 대상 12개)
+
+근거를 확보한 것은 6개(50%). 나머지는 실제로 사용자 목소리가 없는 초기 제품이라 `insufficient`로 비웠다.
+인용 16건의 출처는 reddit 12 / capterra 2 / app_store 1 / facebook 1이며, 전부 실제 URL을 달고 있다.
+
+실제 산출 예:
+
+```
+OnCore  [mixed]
+  + "It's great for tracking and scheduling visits, reminding of visits"
+  − "OnCore is even more expensive. Would not recommend for that reason"
+  − "Look for a CTMS that lets you make changes individually per-study
+     rather than having to apply one template..."
+```
 
 ## 비용
 
@@ -119,6 +142,8 @@ refine        Opus 5      $0.09    10%
 search        Haiku 4.5   $0.21    23%   (웹서치 32회 포함)
 extract       Haiku 4.5   $0.26    29%
 consolidate   Opus 5      $0.32    35%
+──────────────────────────────────────
+reviews       Haiku 4.5   $0.15          (--reviews 지정 시)
 ```
 
 초기 구현($4.86)에서 81% 줄인 값이다. 주요 절감 요인:
@@ -137,13 +162,18 @@ consolidate   Opus 5      $0.32    35%
   모델 조합을 비교할 때는 2~3회 돌려서 봐야 한다.
 - **`traction: confirmed`의 근거가 자사 블로그인 경우가 많다.** Opus는 "제3자 리뷰 미확인" 같은 유보를
   붙이지만, 제3자 리뷰 플랫폼을 직접 확인하는 검증 라운드는 없다.
+- **Reddit 스레드 본문은 가져오지 못한다.** 무인증 `.json` 접근이 403으로 차단되어 있어
+  (`old.reddit.com`, User-Agent 변경, 검색 엔드포인트 모두 동일) 구글 검색 스니펫만 사용한다.
+  OAuth를 붙이면 기술적으로는 가능하나 상업적 사용은 별도 라이선스 대상이라 보류했다.
+- **리뷰 근거 확보율이 50% 수준이다.** 절반은 실제로 리뷰가 없는 초기 제품이지만,
+  스니펫만 보는 구조라 놓치는 것도 있다.
 - **정확도를 잰 것은 리트머스 케이스 하나뿐이다.** 나머지 3개 도메인은 정답을 모르는 상태라
   "결과가 말이 된다"는 판단이지 재현율을 측정한 것이 아니다.
 
 ## 아직 없는 것
 
-MVP 스코프 중 경쟁사 **식별**만 구현했다. 나머지는 식별 정확도가 검증된 뒤에 붙인다.
+MVP 스코프 중 경쟁사 **식별**과 **리뷰 기반 강약점**을 구현했다. 나머지는 아래와 같다.
 
-- 리뷰 기반 강약점 (`review_sources`가 이미 어디서 긁을지 알려준다)
+- ~~리뷰 기반 강약점~~ → 구현 완료 (`--reviews`)
 - 창업 시기·성장 추세 (SimilarWeb 등 유료 API가 필요할 수 있다)
 - 경쟁사 간 공통점·차별점 매핑

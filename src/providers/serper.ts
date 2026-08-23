@@ -40,9 +40,9 @@ async function throttle(): Promise<void> {
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 }
 
-type SerperHit = { title: string; url: string; snippet: string };
+export type SerperHit = { title: string; url: string; snippet: string };
 
-async function serperSearch(apiKey: string, query: string, attempt = 0): Promise<SerperHit[]> {
+export async function serperSearch(apiKey: string, query: string, attempt = 0): Promise<SerperHit[]> {
   await throttle();
 
   const res = await fetch(SERPER_URL, {
@@ -144,3 +144,11 @@ export const serperProvider: SearchProvider = {
     };
   },
 };
+
+/**
+ * 검색만 필요한 다른 단계(리뷰 분석 등)가 키를 얻는 통로.
+ * serperSearch와 함께 쓰면 전역 스로틀과 429 재시도를 그대로 재사용할 수 있다.
+ */
+export function serperKey(): string {
+  return requireEnv(serperProvider);
+}

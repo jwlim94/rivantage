@@ -6,8 +6,9 @@ import { refineIdea } from "./steps/refine.js";
 import { searchAngle } from "./steps/search.js";
 import { extractCandidates } from "./steps/extract.js";
 import { consolidate, poolCandidates } from "./steps/consolidate.js";
+import { analyzeReviews, pickReviewTargets } from "./steps/reviews.js";
 import { makeCache } from "./cache.js";
-import { ExtractedCandidates, RefinedIdea } from "./types.js";
+import { Consolidated, ExtractedCandidates, RefinedIdea } from "./types.js";
 import type { SearchProvider } from "./providers/types.js";
 
 /**
@@ -23,6 +24,8 @@ const STAGE_DEFAULT_MODELS: Record<Stage, string> = {
   search: "",
   extract: "claude-haiku-4-5",
   consolidate: "claude-opus-5",
+  // 리뷰는 "주어진 글에서 사용자 목소리를 골라내는" 작업이라 extract와 성격이 같다.
+  reviews: "claude-haiku-4-5",
 };
 
 /** 진행 중인 실행의 사용량. 크래시 핸들러가 읽는다. */
@@ -59,6 +62,8 @@ function parseArgs(argv: string[]) {
   }
 
   return {
+    reviews: argv.includes("--reviews"),
+    reviewTop: num("review-top", 12),
     onlyAngle: str("angle"),
     maxSearches: num("searches", 8),
     anglesPerKind: num("angles", 1),
@@ -73,6 +78,10 @@ function parseArgs(argv: string[]) {
 }
 
 type RunOpts = {
+  /** 5단계(리뷰 기반 강약점)를 돌릴지. 기본은 끔 — 경쟁사 식별만 빠르게 보고 싶을 때가 많다. */
+  reviews: boolean;
+  /** 리뷰를 분석할 경쟁사 수 상한. 비용이 여기에 비례한다. */
+  reviewTop: number;
   /** 지정하면 그 kind의 각도 하나만 실행한다. 비용을 재보려고 붙인 플래그다. */
   onlyAngle?: string;
   maxSearches: number;
@@ -84,7 +93,8 @@ type RunOpts = {
 };
 
 async function runOne(id: string, idea: string, opts: RunOpts) {
-  const { onlyAngle, maxSearches, anglesPerKind, noCache, models, provider, refresh } = opts;
+  const { reviews, reviewTop, onlyAngle, maxSearches, anglesPerKind, noCache, models, provider, refresh } =
+    opts;
   const spend = newSpend();
   // 크래시해도 여기까지 쓴 비용을 보고한다 — 응답을 받은 시점에 이미 과금됐기 때문이다.
   activeSpend = spend;
@@ -162,10 +172,14 @@ async function runOne(id: string, idea: string, opts: RunOpts) {
   // 이 모드의 목적은 search 비용을 재는 것이다.
   const result = onlyAngle
     ? { competitors: [], excluded: [], coverage_gaps: [] }
-    : await (async () => {
-        console.log(`\n[4/4] 후보 ${rawCount}개 → 도메인 중복 제거 후 ${pooled.length}개 → 정리 중...`);
-        return consolidate(refined, pooled, spend, { model: models.consolidate });
-      })();
+    : await cached(
+        `consolidate-${provider.name}`,
+        () => {
+          console.log(`\n[4/4] 후보 ${rawCount}개 → 도메인 중복 제거 후 ${pooled.length}개 → 정리 중...`);
+          return consolidate(refined, pooled, spend, { model: models.consolidate });
+        },
+        (v) => Consolidated.safeParse(v).data ?? null,
+      );
 
   if (onlyAngle) {
     console.log(`\n[4/4] 건너뜀 (부분 실행) — 후보 ${rawCount}개, 중복 제거 후 ${pooled.length}개`);
@@ -205,6 +219,48 @@ async function runOne(id: string, idea: string, opts: RunOpts) {
     console.log(`\n── 커버리지 공백 ──`);
     for (const g of result.coverage_gaps) console.log(`  · ${g}`);
   }
+  // ── 5단계: 리뷰 기반 강약점 (--reviews)
+  let reviewResults: Awaited<ReturnType<typeof analyzeReviews>> = [];
+  if (reviews && result.competitors.length) {
+    const targets = pickReviewTargets(result.competitors, reviewTop);
+    console.log(`\n[5/5] 리뷰 분석 — 대상 ${targets.length}개 (direct 우선, traction=none 제외)...`);
+    reviewResults = await cached(
+      `reviews-${provider.name}-${reviewTop}`,
+      () =>
+        analyzeReviews(targets, spend, {
+          model: models.reviews,
+          // 동명이인을 피하려면 도메인 맥락이 필요하다. refine이 뽑은 카테고리명을 쓴다.
+          category: refined.category_labels[0] ?? "",
+          onProgress: (r) => {
+            const n = r.strengths.length + r.weaknesses.length;
+            console.log(
+              `  · ${r.competitor.slice(0, 38).padEnd(38)} ${r.sentiment.padEnd(16)} 근거 ${r.evidence_count}건 → ${n}개 항목`,
+            );
+          },
+        }),
+      (v) => (Array.isArray(v) ? (v as typeof reviewResults) : null),
+    );
+
+    const useful = reviewResults.filter((r) => r.sentiment !== "insufficient");
+    console.log(`\n── 리뷰 강약점 (근거 있는 ${useful.length}/${reviewResults.length}개) ──`);
+    for (const r of useful) {
+      console.log(`\n  ▌${r.competitor}  [${r.sentiment}]`);
+      // 출처 URL을 같이 찍는다 — 근거를 직접 확인할 수 있어야 "판단은 유저 몫"이 성립한다.
+      const point = (mark: string, p: { point: string; quote: string; source_url: string }) => {
+        console.log(`    ${mark} ${p.point}`);
+        console.log(`        "${p.quote.slice(0, 100)}"`);
+        console.log(`        ← ${p.source_url}`);
+      };
+      for (const s of r.strengths) point("+", s);
+      for (const w of r.weaknesses) point("−", w);
+      if (r.note) console.log(`      ${r.note}`);
+    }
+    const none = reviewResults.filter((r) => r.sentiment === "insufficient");
+    if (none.length) {
+      console.log(`\n  근거 못 찾음 ${none.length}개: ${none.map((r) => r.competitor).join(", ")}`);
+    }
+  }
+
   console.log(formatSpendTable(spend));
   const cacheNote = hits.length ? `  · 캐시 히트 ${hits.length}건 (해당 단계 비용은 위 표에서 빠져 있다)` : "";
   console.log(`  ${elapsed}s 소요${cacheNote ? "\n" + cacheNote : ""}`);
@@ -236,6 +292,7 @@ async function runOne(id: string, idea: string, opts: RunOpts) {
           rawText: p.findings.text,
         })),
         result,
+        reviews: reviewResults,
         spend,
         elapsedSeconds: Number(elapsed),
       },
@@ -254,8 +311,8 @@ async function runOne(id: string, idea: string, opts: RunOpts) {
 }
 
 async function main() {
-  const { onlyAngle, maxSearches, anglesPerKind, noCache, models, provider, refresh, rest, fixtureFlag, all } =
-    parseArgs(process.argv.slice(2));
+  const opts = parseArgs(process.argv.slice(2));
+  const { rest, fixtureFlag, all } = opts;
   const fixtures = loadFixtures();
 
   let jobs: { id: string; idea: string }[];
@@ -281,6 +338,8 @@ async function main() {
         "",
         "  --angles=1              검색 각도 kind당 개수 (총 4종 × N). 기본 1",
         "  --angle=direct_category 한 kind만 실행 (비용을 먼저 재볼 때)",
+        "  --reviews               5단계: 리뷰 기반 강약점까지 (약 $0.15 추가)",
+        "  --review-top=12         리뷰를 분석할 경쟁사 수 상한",
         "  --searches=8            각도당 최대 웹서치 횟수 (지원하는 프로바이더에서만)",
         "  --no-cache              cache/<id>를 무시하고 전부 다시 실행",
         "  --refresh=extract,...   특정 단계만 캐시 무효화 (refine/search/extract/consolidate)",
@@ -298,7 +357,7 @@ async function main() {
 
   const summaries = [];
   for (const job of jobs) {
-    summaries.push(await runOne(job.id, job.idea, { onlyAngle, maxSearches, anglesPerKind, noCache, models, provider, refresh }));
+    summaries.push(await runOne(job.id, job.idea, opts));
   }
 
   if (summaries.length > 1) {

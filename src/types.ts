@@ -128,3 +128,33 @@ export const Consolidated = z.object({
     .describe("이번 검색으로 못 덮은 영역. 다음 라운드 검색어의 재료가 된다."),
 });
 export type Consolidated = z.infer<typeof Consolidated>;
+
+// ─────────────────────────────── 5단계: 리뷰 기반 강약점
+
+export const Sentiment = z.enum([
+  "mostly_positive",
+  "mixed",
+  "mostly_negative",
+  "insufficient", // 근거가 부족해 판단할 수 없음 — 억지로 채우지 않기 위한 정식 출력값
+]);
+
+export const ReviewPoint = z.object({
+  point: z.string().describe("사람들이 반복해서 말하는 지점 한 줄"),
+  quote: z.string().describe("실제 검색 결과에 나온 표현을 그대로. 지어내지 말 것."),
+  source_url: z.string().describe("그 표현이 나온 URL"),
+});
+
+/**
+ * 경쟁사 하나의 리뷰 분석 결과.
+ * 회사 이름은 코드가 붙인다 — LLM이 재작성하며 바꿀 여지를 없앤다(consolidate와 같은 이유).
+ */
+export const ReviewFinding = z.object({
+  strengths: z.array(ReviewPoint).describe("사람들이 좋아한다고 말한 것. 근거가 없으면 빈 배열."),
+  weaknesses: z.array(ReviewPoint).describe("사람들이 아쉬워한다고 말한 것. 근거가 없으면 빈 배열."),
+  sentiment: Sentiment,
+  evidence_count: z.number().describe("실제로 사용자 목소리가 담긴 것으로 판단한 검색 결과 수"),
+  note: z
+    .string()
+    .describe("근거가 부족하면 무엇을 찾아봤는데 없었는지 적는다. 충분하면 전반적 인상을 한 줄로."),
+});
+export type ReviewFinding = z.infer<typeof ReviewFinding>;

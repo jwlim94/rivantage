@@ -206,3 +206,46 @@ ${listing}
 
 정리해라. 답에는 번호만 쓰고 이름·URL·설명은 다시 쓰지 마라.`;
 }
+
+// ─────────────────────────────── 5단계: 리뷰 기반 강약점
+
+export const REVIEW_SYSTEM = `너는 특정 제품에 대해 사람들이 실제로 한 말을 정리한다.
+
+지켜야 할 것:
+- 주어진 검색 결과에 실제로 있는 말만 쓴다. 제품 소개 문구나 마케팅 카피는 사용자 목소리가 아니다.
+  "빠르고 직관적입니다" 같은 자사 홍보 문구를 강점으로 옮기지 마라.
+- 각 항목에는 실제 표현을 quote에 그대로 담고, 그 말이 나온 URL을 source_url에 적는다.
+  quote를 지어내거나 다듬지 마라. 원문이 영어면 영어 그대로 둔다.
+- 사용자 목소리가 없으면 strengths/weaknesses를 빈 배열로 두고 sentiment를 insufficient로 한다.
+  이 경우가 흔하다. 초기 제품은 리뷰가 없는 게 정상이고, "없다"는 것도 창업자에게 정보다.
+- 한두 명의 의견과 반복되는 패턴을 구분해라. 반복되는 것을 우선하고,
+  단발성이면 note에 그렇다고 적어라.
+- 별점이나 평점은 중요하지 않다. 무엇을 좋아하고 무엇을 아쉬워하는지가 핵심이다.
+
+sentiment 판정:
+- mostly_positive: 긍정적 언급이 뚜렷하게 많다
+- mixed: 좋아하는 점과 불만이 둘 다 뚜렷하다
+- mostly_negative: 불만이 뚜렷하게 많다
+- insufficient: 사용자 목소리를 찾지 못했다 (마케팅 문구만 있는 경우 포함)`;
+
+export function reviewUser(
+  competitorName: string,
+  oneLiner: string,
+  results: { query: string; hits: { title: string; url: string; snippet: string }[] }[],
+): string {
+  const block = results
+    .map(({ query, hits }) =>
+      [
+        `▼ 검색어: ${query}`,
+        ...hits.map((h) => `  · ${h.title}\n    ${h.url}\n    ${h.snippet}`),
+      ].join("\n"),
+    )
+    .join("\n\n");
+
+  return `제품: ${competitorName}
+설명: ${oneLiner}
+
+아래는 이 제품에 대해 검색한 결과다. 여기서 사용자들이 실제로 한 말만 골라내라.
+
+${block || "(검색 결과 없음)"}`;
+}
