@@ -4,9 +4,12 @@
   "description": "Competitor discovery from raw startup ideas",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx --env-file-if-exists=.env src/run.ts",
+    "dev": "next dev",
     "typecheck": "tsc --noEmit",
-    "probe:grok": "tsx --env-file-if-exists=.env src/probe-grok.ts"
+    "probe:grok": "tsx --env-file-if-exists=.env scripts/probe-grok.ts",
+    "build": "next build",
+    "start": "next start",
+    "pipeline": "tsx --env-file-if-exists=.env scripts/run.ts"
   },
   "repository": {
     "type": "git",
@@ -22,11 +25,19 @@
   "type": "module",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
+    "next": "^16.3.2",
     "openai": "^7.5.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   }

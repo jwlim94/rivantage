@@ -1,16 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
-import { STAGES, formatSpendTable, newSpend, totalCost, type Spend, type Stage } from "./cost.js";
-import { DEFAULT_PROVIDER, getProvider, providerNames } from "./providers/registry.js";
-import { refineIdea } from "./steps/refine.js";
-import { searchAngle } from "./steps/search.js";
-import { extractCandidates } from "./steps/extract.js";
-import { consolidate, poolCandidates } from "./steps/consolidate.js";
-import { analyzeReviews, pickReviewTargets } from "./steps/reviews.js";
-import { mapPositioning, pickPositioningTargets, renderAxis } from "./steps/positioning.js";
-import { makeCache } from "./cache.js";
-import { Consolidated, ExtractedCandidates, PositioningMap, RefinedIdea } from "./types.js";
-import type { SearchProvider } from "./providers/types.js";
+import { STAGES, formatSpendTable, newSpend, totalCost, type Spend, type Stage } from "../lib/pipeline/cost.js";
+import { DEFAULT_PROVIDER, getProvider, providerNames } from "../lib/pipeline/providers/registry.js";
+import { refineIdea } from "../lib/pipeline/steps/refine.js";
+import { searchAngle } from "../lib/pipeline/steps/search.js";
+import { extractCandidates } from "../lib/pipeline/steps/extract.js";
+import { consolidate, poolCandidates } from "../lib/pipeline/steps/consolidate.js";
+import { analyzeReviews, pickReviewTargets } from "../lib/pipeline/steps/reviews.js";
+import { mapPositioning, pickPositioningTargets, renderAxis } from "../lib/pipeline/steps/positioning.js";
+import { makeCache } from "../lib/pipeline/cache.js";
+import { Consolidated, ExtractedCandidates, PositioningMap, RefinedIdea } from "../lib/pipeline/types.js";
+import type { SearchProvider } from "../lib/pipeline/providers/types.js";
 
 /**
  * 단계별 기본 모델. 실측으로 고른 조합이다:

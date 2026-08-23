@@ -1,9 +1,18 @@
 node_modules
 
-# 실행 산출물 — 리포트와 단계별 캐시. 재현 가능하고 용량이 크다.
+# Next.js 빌드 산출물
+.next/
+.vercel/
+next-env.d.ts
+
+# TypeScript 증분 빌드 캐시
+*.tsbuildinfo
+
+# 파이프라인 실행 산출물 — 리포트와 단계별 캐시. 재현 가능하고 용량이 크다.
 out/
 cache/
 
 # 실제 키가 들어가는 파일. .env.example은 커밋된다.
 .env
 .env.local
+.env*.local
