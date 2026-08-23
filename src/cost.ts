@@ -1,7 +1,7 @@
 import { pricingFor } from "./providers/registry.js";
 import type { Usage } from "./providers/types.js";
 
-export const STAGES = ["refine", "search", "extract", "consolidate", "reviews"] as const;
+export const STAGES = ["refine", "search", "extract", "consolidate", "reviews", "positioning"] as const;
 export type Stage = (typeof STAGES)[number];
 
 export type StageSpend = {
@@ -44,6 +44,7 @@ export const newSpend = (): Spend => ({
   extract: blank(),
   consolidate: blank(),
   reviews: blank(),
+  positioning: blank(),
 });
 
 /** 응답 하나의 usage를 해당 단계에 누적한다. */

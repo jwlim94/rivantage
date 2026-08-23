@@ -7,8 +7,9 @@ import { searchAngle } from "./steps/search.js";
 import { extractCandidates } from "./steps/extract.js";
 import { consolidate, poolCandidates } from "./steps/consolidate.js";
 import { analyzeReviews, pickReviewTargets } from "./steps/reviews.js";
+import { mapPositioning, pickPositioningTargets, renderAxis } from "./steps/positioning.js";
 import { makeCache } from "./cache.js";
-import { Consolidated, ExtractedCandidates, RefinedIdea } from "./types.js";
+import { Consolidated, ExtractedCandidates, PositioningMap, RefinedIdea } from "./types.js";
 import type { SearchProvider } from "./providers/types.js";
 
 /**
@@ -26,6 +27,8 @@ const STAGE_DEFAULT_MODELS: Record<Stage, string> = {
   consolidate: "claude-opus-5",
   // 리뷰는 "주어진 글에서 사용자 목소리를 골라내는" 작업이라 extract와 성격이 같다.
   reviews: "claude-haiku-4-5",
+  // 포지셔닝은 축을 찾아내는 판단이라 consolidate와 성격이 같다.
+  positioning: "claude-opus-5",
 };
 
 /** 진행 중인 실행의 사용량. 크래시 핸들러가 읽는다. */
@@ -62,8 +65,10 @@ function parseArgs(argv: string[]) {
   }
 
   return {
-    reviews: argv.includes("--reviews"),
+    reviews: argv.includes("--reviews") || argv.includes("--full"),
     reviewTop: num("review-top", 12),
+    positioning: argv.includes("--positioning") || argv.includes("--full"),
+    positionTop: num("position-top", 25),
     onlyAngle: str("angle"),
     maxSearches: num("searches", 8),
     anglesPerKind: num("angles", 1),
@@ -82,6 +87,9 @@ type RunOpts = {
   reviews: boolean;
   /** 리뷰를 분석할 경쟁사 수 상한. 비용이 여기에 비례한다. */
   reviewTop: number;
+  /** 6단계(차별점 매핑)를 돌릴지. --full이면 리뷰와 함께 켜진다. */
+  positioning: boolean;
+  positionTop: number;
   /** 지정하면 그 kind의 각도 하나만 실행한다. 비용을 재보려고 붙인 플래그다. */
   onlyAngle?: string;
   maxSearches: number;
@@ -93,7 +101,7 @@ type RunOpts = {
 };
 
 async function runOne(id: string, idea: string, opts: RunOpts) {
-  const { reviews, reviewTop, onlyAngle, maxSearches, anglesPerKind, noCache, models, provider, refresh } =
+  const { reviews, reviewTop, positioning, positionTop, onlyAngle, maxSearches, anglesPerKind, noCache, models, provider, refresh } =
     opts;
   const spend = newSpend();
   // 크래시해도 여기까지 쓴 비용을 보고한다 — 응답을 받은 시점에 이미 과금됐기 때문이다.
@@ -261,6 +269,47 @@ async function runOne(id: string, idea: string, opts: RunOpts) {
     }
   }
 
+  // ── 6단계: 차별점 매핑 (--positioning)
+  let posMap: Awaited<ReturnType<typeof mapPositioning>> | null = null;
+  if (positioning && result.competitors.length) {
+    const targets = pickPositioningTargets(result.competitors, positionTop);
+    console.log(`\n[6/6] 차별점 매핑 — 대상 ${targets.length}개...`);
+    posMap = await cached(
+      `positioning-${provider.name}-${positionTop}`,
+      () => mapPositioning(refined, targets, reviewResults, spend, { model: models.positioning }),
+      (v) => PositioningMap.safeParse(v).data ?? null,
+    );
+
+    console.log(`\n── 이 시장이 갈리는 축 ──`);
+    for (const a of posMap.axes) {
+      console.log(`\n  ▌${a.name}:  ${a.low_label}  ←→  ${a.high_label}`);
+      console.log(`      ${a.why}`);
+    }
+
+    console.log(`\n── 경쟁사 배치 ──`);
+    const head = posMap.axes.map((a) => a.name.slice(0, 12).padEnd(13)).join(" ");
+    console.log(`  ${"".padEnd(30)} ${head}`);
+    for (const p of posMap.placements) {
+      const cells = posMap.axes
+        .map((a) => {
+          const hit = p.positions.find((x) => x.axis === a.name);
+          return renderAxis(hit?.position ?? "unknown").padEnd(13);
+        })
+        .join(" ");
+      console.log(`  ${p.competitor.slice(0, 29).padEnd(30)} ${cells}`);
+    }
+
+    if (posMap.gaps.length) {
+      console.log(`\n── 비어 보이는 자리 ──`);
+      for (const g of posMap.gaps) console.log(`  · ${g.where}\n      ${g.assessment}`);
+    }
+    console.log(`\n── 경쟁사들이 실제로 겨루는 지점 ──\n  ${posMap.contested}`);
+    console.log(`\n── 입력한 아이디어의 자리 ──`);
+    console.log(`  ${posMap.your_position.summary}`);
+    console.log(`  가장 가까운 곳: ${posMap.your_position.nearest.join(", ") || "없음"}`);
+    console.log(`  ⚠ ${posMap.your_position.caveat}`);
+  }
+
   console.log(formatSpendTable(spend));
   const cacheNote = hits.length ? `  · 캐시 히트 ${hits.length}건 (해당 단계 비용은 위 표에서 빠져 있다)` : "";
   console.log(`  ${elapsed}s 소요${cacheNote ? "\n" + cacheNote : ""}`);
@@ -293,6 +342,7 @@ async function runOne(id: string, idea: string, opts: RunOpts) {
         })),
         result,
         reviews: reviewResults,
+        positioning: posMap,
         spend,
         elapsedSeconds: Number(elapsed),
       },
@@ -340,6 +390,8 @@ async function main() {
         "  --angle=direct_category 한 kind만 실행 (비용을 먼저 재볼 때)",
         "  --reviews               5단계: 리뷰 기반 강약점까지 (약 $0.15 추가)",
         "  --review-top=12         리뷰를 분석할 경쟁사 수 상한",
+        "  --positioning           6단계: 차별점 매핑 (약 $0.1 추가)",
+        "  --full                  5·6단계를 모두 실행",
         "  --searches=8            각도당 최대 웹서치 횟수 (지원하는 프로바이더에서만)",
         "  --no-cache              cache/<id>를 무시하고 전부 다시 실행",
         "  --refresh=extract,...   특정 단계만 캐시 무효화 (refine/search/extract/consolidate)",

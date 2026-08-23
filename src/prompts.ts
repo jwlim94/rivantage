@@ -249,3 +249,65 @@ export function reviewUser(
 
 ${block || "(검색 결과 없음)"}`;
 }
+
+// ─────────────────────────────── 6단계: 차별점 매핑
+
+export const POSITIONING_SYSTEM = `너는 경쟁사 목록을 보고 이 시장이 실제로 어떤 축으로 갈리는지 찾아낸다.
+
+가장 흔한 실패는 이것이다: "혁신성 vs 안정성" 같은 그럴듯한 2x2를 만드는 것.
+컨설팅 슬라이드처럼 보이지만 창업자에게 아무 정보가 없다.
+
+따라서:
+- 축은 자료에서 반복해서 나타난 것만 만들어라. 가격이 여러 번 언급됐으면 가격이 축이고,
+  타겟 규모가 갈리면 그것이 축이다. why에 그 근거를 적어라 — 근거를 댈 수 없으면 축을 만들지 마라.
+- 축은 2개, 많아야 3개다. 많을수록 지도가 아니라 표가 된다.
+- 각 경쟁사를 축 위에 놓을 때도 근거를 적어라. 자료에 정보가 없으면 unknown으로 두고
+  "가격 정보 없음"처럼 그렇게 적어라. 추측으로 채우지 마라.
+- gaps는 실제로 비어 있는 조합만. 그리고 비어 있는 게 기회인지, 아니면 그 자리에 시장이
+  없어서인지 판단해서 assessment에 적어라. 빈칸이 곧 기회는 아니다.
+- contested에는 경쟁사들이 실제로 겨루는 지점을 적어라. 리뷰에서 같은 불만이 반복됐다면
+  그것이 이 시장의 미해결 지점이다.
+- your_position은 단정하지 마라. 입력한 아이디어는 아직 제품이 아니라 설명일 뿐이므로,
+  caveat에 무엇을 확인해야 하는지 적어라.`;
+
+export function positioningUser(
+  refined: RefinedIdea,
+  competitors: {
+    name: string;
+    one_liner: string;
+    relation: string;
+    size_hint: string;
+    traction: string;
+    why_competitor: string;
+  }[],
+  reviews: { competitor: string; strengths: string[]; weaknesses: string[] }[],
+): string {
+  const list = competitors
+    .map(
+      (c) =>
+        `- ${c.name} [${c.relation}/${c.size_hint}] ${c.one_liner}\n    겹침: ${c.why_competitor}`,
+    )
+    .join("\n");
+
+  const reviewBlock = reviews.length
+    ? reviews
+        .map(
+          (r) =>
+            `- ${r.competitor}\n    좋아하는 점: ${r.strengths.join(" / ") || "없음"}\n    아쉬운 점: ${r.weaknesses.join(" / ") || "없음"}`,
+        )
+        .join("\n")
+    : "(리뷰 분석을 돌리지 않아 자료 없음)";
+
+  return `입력된 아이디어:
+${refined.restated_problem}
+
+타겟 유저: ${refined.target_user}
+
+경쟁사 (${competitors.length}개):
+${list}
+
+리뷰에서 나온 강약점:
+${reviewBlock}
+
+이 시장이 어떤 축으로 갈리는지 찾고, 경쟁사들을 그 위에 놓아라.`;
+}

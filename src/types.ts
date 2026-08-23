@@ -158,3 +158,60 @@ export const ReviewFinding = z.object({
     .describe("근거가 부족하면 무엇을 찾아봤는데 없었는지 적는다. 충분하면 전반적 인상을 한 줄로."),
 });
 export type ReviewFinding = z.infer<typeof ReviewFinding>;
+
+// ─────────────────────────────── 6단계: 차별점 매핑 (포지셔닝)
+
+export const AxisPosition = z.enum(["low", "mid", "high", "unknown"]);
+
+export const Axis = z.object({
+  name: z.string().describe("축 이름. 예: 가격, 타겟 규모, 자동화 정도"),
+  low_label: z.string().describe("이 축의 낮은 쪽이 무엇인지. 예: 무료 템플릿"),
+  high_label: z.string().describe("높은 쪽이 무엇인지. 예: 엔터프라이즈 연간 계약"),
+  why: z
+    .string()
+    .describe(
+      "이 축을 고른 근거. 경쟁사 설명이나 리뷰에서 실제로 반복된 것이어야 한다. " +
+        "근거를 댈 수 없으면 그 축은 만들지 마라.",
+    ),
+});
+
+export const Placement = z.object({
+  competitor: z.string(),
+  positions: z.array(
+    z.object({
+      axis: z.string().describe("축 이름"),
+      position: AxisPosition,
+      evidence: z.string().describe("여기 놓은 근거. 자료에 없으면 unknown으로 두고 그렇게 적는다."),
+    }),
+  ),
+});
+
+/**
+ * 경쟁사들이 서로 어떻게 갈리는지의 지도.
+ *
+ * 가장 큰 실패 모드는 "혁신성 vs 안정성" 같은 그럴듯하지만 근거 없는 축을 만드는 것이다.
+ * 그래서 축과 배치 모두에 근거 필드를 강제한다 — traction과 리뷰 인용에서 쓴 것과 같은 방식이다.
+ */
+export const PositioningMap = z.object({
+  axes: z.array(Axis).describe("이 시장이 실제로 갈리는 축. 2~3개. 근거를 댈 수 있는 것만."),
+  placements: z.array(Placement),
+  gaps: z
+    .array(
+      z.object({
+        where: z.string().describe("어느 조합이 비어 있는지"),
+        assessment: z
+          .string()
+          .describe("비어 있는 이유를 어떻게 보는지. 기회일 수도, 시장이 없어서일 수도 있다."),
+      }),
+    )
+    .describe("비어 보이는 영역. 없으면 빈 배열."),
+  contested: z
+    .string()
+    .describe("경쟁사들이 실제로 무엇을 놓고 겨루는지. 리뷰에서 반복된 불만이 있으면 그것을 근거로."),
+  your_position: z.object({
+    summary: z.string().describe("입력한 아이디어가 이 지도에서 어디쯤 서는지"),
+    nearest: z.array(z.string()).describe("가장 가까운 경쟁사 이름들"),
+    caveat: z.string().describe("이 판단의 한계나 확인이 필요한 점"),
+  }),
+});
+export type PositioningMap = z.infer<typeof PositioningMap>;
